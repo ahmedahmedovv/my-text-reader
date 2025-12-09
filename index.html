@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Text Reader</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:serif;background:#fff;color:#000;padding:15px;font-size:18px;line-height:1.6}
+h1{font-size:24px;margin-bottom:15px;text-align:center}
+input[type="file"]{width:100%;padding:15px;margin:10px 0;font-size:16px;border:2px solid #000}
+#reader{display:none}
+#reader.active{display:block}
+#text{min-height:500px;padding:15px;margin:15px 0;white-space:pre-wrap;word-wrap:break-word;font-size:16px;border:1px solid #000}
+.word{cursor:pointer}
+.word:hover{background:#eee}
+.popup{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border:2px solid #000;padding:20px;max-width:400px;z-index:1000;box-shadow:0 4px 20px rgba(0,0,0,0.3)}
+.popup.active{display:block}
+.popup-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-weight:bold;font-size:20px}
+.popup-close{background:none;border:none;font-size:24px;cursor:pointer;padding:0;width:30px;height:30px}
+.popup-content{font-size:16px;line-height:1.5}
+.popup-definition{margin-bottom:15px;font-weight:normal;font-style:normal}
+.popup-example{margin-top:15px;padding:10px;border-left:3px solid #666;font-style:italic;background:#f5f5f5}
+.popup-loading{text-align:center;padding:20px}
+.overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999}
+.overlay.active{display:block}
+.pagination{display:flex;gap:15px;align-items:center;justify-content:center;margin:20px 0;flex-wrap:wrap}
+button{padding:15px 25px;font-size:18px;border:2px solid #000;background:#fff;cursor:pointer;min-width:80px}
+button:active{background:#000;color:#fff}
+button:disabled{opacity:0.3;cursor:not-allowed}
+#page{font-size:18px;min-width:100px;text-align:center}
+select{padding:10px;font-size:16px;border:2px solid #000}
+@media (prefers-color-scheme:dark){
+body{background:#000;color:#fff}
+input,button,select,#text{border-color:#fff;background:#000;color:#fff}
+.popup{background:#000;border-color:#fff;color:#fff}
+.word:hover{background:#333}
+.popup-close{color:#fff}
+.popup-example{background:#222;border-left-color:#fff}
+}
+</style>
+</head>
+<body>
+<h1>Text Reader</h1>
+<input type="file" id="file" accept=".txt">
+<div id="reader">
+<div id="text"></div>
+<div class="pagination">
+<button onclick="prev()">◀ Prev</button>
+<span id="page">1/1</span>
+<button onclick="next()">Next ▶</button>
+</div>
+<div style="text-align:center;margin:10px 0">
+<select id="size" onchange="changeSize()"><option>15</option><option selected>25</option><option>40</option><option>60</option></select>
+</div>
+</div>
+<div class="overlay" id="overlay" onclick="closePopup()"></div>
+<div class="popup" id="popup">
+<div class="popup-header">
+<span id="popupWord"></span>
+<button class="popup-close" onclick="closePopup()">×</button>
+</div>
+<div class="popup-content" id="popupContent"></div>
+</div>
+<script>
+const MISTRAL_API_KEY='UyFZtjZY3r5aNe1th2qtx6IBLynCc0ai';
+let lines=[],page=1,size=25,fileName='';
+function saveState(){
+if(lines.length>0){
+localStorage.setItem('txtReader_content',lines.join('\n'));
+localStorage.setItem('txtReader_page',page);
+localStorage.setItem('txtReader_size',size);
+localStorage.setItem('txtReader_fileName',fileName);
+}
+}
+function loadState(){
+const content=localStorage.getItem('txtReader_content');
+if(content){
+lines=content.split('\n');
+page=parseInt(localStorage.getItem('txtReader_page'))||1;
+size=parseInt(localStorage.getItem('txtReader_size'))||25;
+fileName=localStorage.getItem('txtReader_fileName')||'Saved Document';
+document.getElementById('size').value=size;
+show();
+}
+}
+document.getElementById('file').onchange=e=>{
+const f=e.target.files[0];
+if(!f||!f.name.endsWith('.txt')){alert('Please select a .txt file');return}
+const r=new FileReader();
+r.onload=e=>{lines=e.target.result.split('\n');page=1;fileName=f.name;show();saveState()};
+r.readAsText(f);
+};
+function makeWordsClickable(text){
+return text.replace(/\b([a-zA-Z]{2,})\b/g,'<span class="word" onclick="getDefinition(\'$1\')">$1</span>');
+}
+function show(){document.getElementById('reader').classList.add('active');update()}
+function update(){
+const total=Math.ceil(lines.length/size);
+const start=(page-1)*size;
+const end=Math.min(start+size,lines.length);
+const pageText=lines.slice(start,end).join('\n');
+document.getElementById('text').innerHTML=makeWordsClickable(pageText);
+document.getElementById('page').textContent=`${page}/${total}`;
+const btns=document.querySelectorAll('button');
+btns[0].disabled=page===1;
+btns[1].disabled=page>=total;
+saveState();
+}
+function prev(){if(page>1){page--;update();scrollToTop()}}
+function next(){if(page<Math.ceil(lines.length/size)){page++;update();scrollToTop()}}
+function scrollToTop(){
+document.getElementById('text').scrollTop=0;
+window.scrollTo(0,0);
+}
+function changeSize(){size=+document.getElementById('size').value;page=1;update();scrollToTop()}
+async function getDefinition(word){
+const w=word.toLowerCase().replace(/[^a-z]/g,'');
+if(!w||w.length<2)return;
+document.getElementById('popupWord').textContent=word;
+document.getElementById('popupContent').innerHTML='<div class="popup-loading">Loading definition...</div>';
+document.getElementById('popup').classList.add('active');
+document.getElementById('overlay').classList.add('active');
+try{
+const res=await fetch('https://api.mistral.ai/v1/chat/completions',{
+method:'POST',
+headers:{'Content-Type':'application/json','Authorization':`Bearer ${MISTRAL_API_KEY}`},
+body:JSON.stringify({
+model:'mistral-tiny',
+messages:[{role:'user',content:`Give a brief, simple definition of the word "${word}" in one or two sentences. Then provide an example sentence. Format your response as: "Definition: [definition text]. Example: [example sentence]."`}],
+max_tokens:150
+})
+});
+const data=await res.json();
+const response=data.choices?.[0]?.message?.content||'Definition not available.';
+let formatted='';
+const defMatch=response.match(/Definition:\s*(.+?)(?:\.\s*Example:|$)/i);
+const exMatch=response.match(/Example:\s*(.+?)(?:\.|$)/i);
+if(defMatch){
+formatted+=`<div class="popup-definition">${defMatch[1].trim()}</div>`;
+}
+if(exMatch){
+formatted+=`<div class="popup-example">${exMatch[1].trim()}</div>`;
+}
+if(!formatted)formatted=response;
+document.getElementById('popupContent').innerHTML=formatted;
+}catch(e){
+document.getElementById('popupContent').innerHTML='Error loading definition. Please try again.';
+}
+}
+function closePopup(){
+document.getElementById('popup').classList.remove('active');
+document.getElementById('overlay').classList.remove('active');
+}
+document.addEventListener('keydown',e=>{
+if(e.key==='ArrowLeft')prev();
+if(e.key==='ArrowRight')next();
+if(e.key==='Escape')closePopup();
+});
+loadState();
+</script>
+</body>
+</html>
